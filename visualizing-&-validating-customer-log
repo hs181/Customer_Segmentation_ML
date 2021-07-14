@@ -19,3 +19,19 @@ pd.options.mode.chained_assignment = None
 
 # loading data
 customers_orders = pd.read_csv("Customer-Orders-log.csv")
+
+# preview of dataset
+customers_orders.head() #5 by default
+
+# first glance of customers_orders data
+customers_orders.info()
+
+# descriptive statistics of the non-object columns
+customers_orders.describe()
+
+print("Number of rows that net quantity is negative:", 
+      customers_orders[customers_orders.net_quantity < 0].shape[0])
+      
+# exclude not sold/ordered SKUs from the dataset
+customers_orders = customers_orders[
+    customers_orders["ordered_item_quantity"] > 0]      
