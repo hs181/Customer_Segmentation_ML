@@ -1,0 +1,21 @@
+# for data
+import numpy as np
+import pandas as pd
+
+# for visualization
+import matplotlib.pyplot as plt
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
+
+%matplotlib inline
+# to include graphs inline within the frontends next to code
+
+%config InlineBackend.figure_format='retina'
+#to enable retina (high resolution) plots
+
+pd.options.mode.chained_assignment = None
+# to bypass warnings in various dataframe assignments
+
+# loading data
+customers_orders = pd.read_csv("Customer-Orders-log.csv")
