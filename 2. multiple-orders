@@ -1,0 +1,38 @@
+#to track customers with multiple orders
+def encode_column(column):
+    if column > 0:
+        return 1
+    if column <= 0:
+        return 0
+
+
+def aggregate_by_ordered_quantity(dataframe, column_list):
+    '''this function:
+    1. aggregates a given dataframe by column list, 
+    as a result creates a aggregated dataframe by counting the ordered item quantities
+
+    2. adds number_of_X ordered where X is the second element in the column_list 
+    to the aggregated dataframe by encoding ordered items into 1
+
+    3. creates final dataframe containing information about 
+    how many of X are ordered, based on the first element passed in the column list'''
+
+    aggregated_dataframe = (dataframe
+                            .groupby(column_list)
+                            .ordered_item_quantity.count()
+                            .reset_index())
+
+    aggregated_dataframe["products_ordered"] = (aggregated_dataframe
+                                                 .ordered_item_quantity
+                                                 .apply(encode_column))
+
+    final_dataframe = (aggregated_dataframe
+                       .groupby(column_list[0])
+                       .products_ordered.sum() # aligned with the added column name
+                       .reset_index())
+
+    return final_dataframe
+    
+# apply functions to customers_orders
+customers = aggregate_by_ordered_quantity(customers_orders, ["customer_id", "product_type"])
+print(customers.head())
