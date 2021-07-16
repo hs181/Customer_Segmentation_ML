@@ -1,0 +1,50 @@
+#calculation of average return rate
+# aggregate data per customer_id and order_id, 
+# to see ordered item sum and returned item sum
+ordered_sum_by_customer_order = (customers_orders
+                                 .groupby(["customer_id", "order_id"])
+                                 .ordered_item_quantity.sum()
+                                 .reset_index())
+
+returned_sum_by_customer_order = (customers_orders
+                                  .groupby(["customer_id", "order_id"])
+                                  .returned_item_quantity.sum()
+                                  .reset_index())
+
+# merge two dataframes to be able to calculate unit return rate
+ordered_returned_sums = pd.merge(ordered_sum_by_customer_order, returned_sum_by_customer_order)
+
+#####
+# calculate unit return rate per order and customer
+ordered_returned_sums["average_return_rate"] = (-1 * 
+                                             ordered_returned_sums["returned_item_quantity"] /
+                                             ordered_returned_sums["ordered_item_quantity"])
+
+#####
+ordered_returned_sums.head()
+
+#####
+# take average of the unit return rate for all orders of a customer
+customer_return_rate = (ordered_returned_sums
+                        .groupby("customer_id")
+                        .average_return_rate
+                        .mean()
+                        .reset_index())
+
+####
+return_rates = pd.DataFrame(customer_return_rate["average_return_rate"]
+                            .value_counts()
+                            .reset_index())
+
+return_rates.rename(columns=
+                    {"index": "average return rate",
+                     "average_return_rate": "count of unit return rate"},
+                    inplace=True)
+
+return_rates.sort_values(by="average return rate")
+
+####
+# add average_return_rate to customers dataframe
+customers = pd.merge(customers,
+                     customer_return_rate,
+                     on="customer_id")
