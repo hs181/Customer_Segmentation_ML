@@ -1,0 +1,142 @@
+#applying model with appropriate number of clusters
+# create initial K-means model
+kmeans_model = KMeans(init='k-means++', 
+                      max_iter=500, 
+                      random_state=42)
+
+kmeans_model.fit(customers.iloc[:,3:])
+
+# print the sum of distances from all examples to the center of the cluster
+print("within-cluster sum-of-squares (inertia) of the model is:", kmeans_model.inertia_)
+
+def make_list_of_K(K, dataframe):
+    '''inputs: K as integer and dataframe
+    apply k-means clustering to dataframe
+    and make a list of inertia values against 1 to K (inclusive)
+    return the inertia values list
+    '''
+    
+    cluster_values = list(range(1, K+1))
+    inertia_values=[]
+    
+    for c in cluster_values:
+        model = KMeans(
+            n_clusters = c, 
+            init='k-means++', 
+            max_iter=500, 
+            random_state=42)
+        model.fit(dataframe)
+        inertia_values.append(model.inertia_)
+    
+    return inertia_values
+
+# save inertia values in a dataframe for k values between 1 to 15 
+results = make_list_of_K(15, customers.iloc[:, 3:])
+
+k_values_distances = pd.DataFrame({"clusters": list(range(1, 16)),
+                                   "within cluster sum of squared distances": results})
+
+# visualization for the selection of number of segments
+fig = go.Figure()
+
+fig.add_trace(go.Scatter(x=k_values_distances["clusters"], 
+                         y=k_values_distances["within cluster sum of squared distances"],
+                         mode='lines+markers'))
+
+fig.update_layout(xaxis = dict(
+        tickmode = 'linear',
+        tick0 = 1,
+        dtick = 1),
+                  title_text="Within Cluster Sum of Squared Distances VS K Values",
+                  xaxis_title="K values",
+                  yaxis_title="Cluster sum of squared distances")
+
+fig.show()
+
+# create clustering model with optimal k=4
+updated_kmeans_model = KMeans(n_clusters = 4, 
+                              init='k-means++', 
+                              max_iter=500, 
+                              random_state=42)
+
+updated_kmeans_model.fit_predict(customers.iloc[:,3:])
+
+# create cluster centers and actual data arrays
+cluster_centers = updated_kmeans_model.cluster_centers_
+actual_data = np.expm1(cluster_centers)
+add_points = np.append(actual_data, cluster_centers, axis=1)
+add_points
+
+# add labels to customers dataframe and add_points array
+add_points = np.append(add_points, [[0], [1], [2], [3]], axis=1)
+customers["clusters"] = updated_kmeans_model.labels_
+# create centers dataframe from add_points
+centers_df = pd.DataFrame(data=add_points, columns=["products_ordered",
+                                                    "average_return_rate",
+                                                    "total_spending",
+                                                    "log_products_ordered",
+                                                    "log_average_return_rate",
+                                                    "log_total_spending",
+                                                    "clusters"])
+centers_df.head()
+
+# align cluster centers of centers_df and customers
+centers_df["clusters"] = centers_df["clusters"].astype("int")
+
+centers_df.head()
+
+customers.head()
+
+# differentiate between data points and cluster centers
+customers["is_center"] = 0
+centers_df["is_center"] = 1
+
+# add dataframes together
+customers = customers.append(centers_df, ignore_index=True)
+customers.tail()
+
+# add clusters to the dataframe
+customers["cluster_name"] = customers["clusters"].astype(str)
+
+# visualize log_transformation customer segments with a 3D plot
+fig = px.scatter_3d(customers,
+                    x="log_products_ordered",
+                    y="log_average_return_rate",
+                    z="log_total_spending",
+                    color='cluster_name',
+                    hover_data=["products_ordered",
+                                "average_return_rate",
+                                "total_spending"],
+                    category_orders = {"cluster_name": 
+                                       ["0", "1", "2", "3"]},
+                    symbol = "is_center"
+                    )
+
+fig.update_layout(margin=dict(l=0, r=0, b=0, t=0))
+fig.show()
+
+# values for log_transformation
+cardinality_df = pd.DataFrame(
+    customers.cluster_name.value_counts().reset_index())
+
+cardinality_df.rename(columns={"index": "Customer Groups",
+                               "cluster_name": "Customer Group Magnitude"},
+                      inplace=True)
+
+cardinality_df
+
+fig = px.bar(cardinality_df, x="Customer Groups", 
+             y="Customer Group Magnitude",
+             color = "Customer Groups",
+             category_orders = {"Customer Groups": ["0", "1", "2", "3"]})
+
+fig.update_layout(xaxis = dict(
+        tickmode = 'linear',
+        tick0 = 1,
+        dtick = 1),
+                 yaxis = dict(
+        tickmode = 'linear',
+        tick0 = 1000,
+        dtick = 1000))
+
+fig.show()
