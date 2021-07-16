@@ -1,0 +1,82 @@
+#total spending and features creation and transformation
+
+# aggreagate total sales per customer id
+customer_total_spending = (customers_orders
+                           .groupby("customer_id")
+                           .total_sales
+                           .sum()
+                           .reset_index())
+
+customer_total_spending.rename(columns = {"total_sales" : "total_spending"},
+                               inplace = True)
+
+# add total sales to customers dataframe
+customers = customers.merge(customer_total_spending, 
+                            on="customer_id")
+
+print("The number of customers from the existing customer base:", customers.shape[0])
+# drop id column since it is not a feature
+customers.drop(columns="customer_id",
+               inplace=True)
+customers.head()
+
+#visualizing features
+fig = make_subplots(rows=3, cols=1,
+                   subplot_titles=("Products Ordered", 
+                                   "Average Return Rate", 
+                                   "Total Spending"))
+
+fig.append_trace(go.Histogram(x=customers.products_ordered),
+                 row=1, col=1)
+
+fig.append_trace(go.Histogram(x=customers.average_return_rate),
+                 row=2, col=1)
+
+fig.append_trace(go.Histogram(x=customers.total_spending),
+                 row=3, col=1)
+
+fig.update_layout(height=800, width=800,
+                  title_text="Distribution of the Features")
+
+fig.show()
+
+#scaling features
+def apply_log1p_transformation(dataframe, column):
+    '''This function takes a dataframe and a column in the string format
+    then applies numpy log1p transformation to the column
+    as a result returns log1p applied pandas series'''
+    
+    dataframe["log_" + column] = np.log1p(dataframe[column])
+    return dataframe["log_" + column]
+
+#applying transformations
+apply_log1p_transformation(customers, "products_ordered")
+
+apply_log1p_transformation(customers, "average_return_rate")
+
+apply_log1p_transformation(customers, "total_spending")
+
+fig = make_subplots(rows=3, cols=1,
+                   subplot_titles=("Products Ordered", 
+                                   "Average Return Rate", 
+                                   "Total Spending"))
+
+#visualizing transformed features
+fig.append_trace(go.Histogram(x=customers.log_products_ordered),
+                 row=1, col=1)
+
+fig.append_trace(go.Histogram(x=customers.log_average_return_rate),
+                 row=2, col=1)
+
+fig.append_trace(go.Histogram(x=customers.log_total_spending),
+                 row=3, col=1)
+
+fig.update_layout(height=800, width=800,
+                  title_text="Distribution of the Features after Logarithm Transformation")
+
+fig.show()
+
+customers.head()
+
+# features we are going to use as an input to the model
+customers.iloc[:,3:]
