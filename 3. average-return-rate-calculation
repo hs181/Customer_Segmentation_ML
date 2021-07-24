@@ -1,50 +1,92 @@
-#calculation of average return rate
-# aggregate data per customer_id and order_id, 
-# to see ordered item sum and returned item sum
-ordered_sum_by_customer_order = (customers_orders
-                                 .groupby(["customer_id", "order_id"])
-                                 .ordered_item_quantity.sum()
-                                 .reset_index())
+# for data
+import numpy as np
+import pandas as pd
 
-returned_sum_by_customer_order = (customers_orders
-                                  .groupby(["customer_id", "order_id"])
-                                  .returned_item_quantity.sum()
-                                  .reset_index())
+# loading data
+orders_log = pd.read_csv("Customer-Orders-log.csv")
 
-# merge two dataframes to be able to calculate unit return rate
-ordered_returned_sums = pd.merge(ordered_sum_by_customer_order, returned_sum_by_customer_order)
+# overview of data
+#orders_log.info()
 
-#####
-# calculate unit return rate per order and customer
-ordered_returned_sums["average_return_rate"] = (-1 * 
-                                             ordered_returned_sums["returned_item_quantity"] /
-                                             ordered_returned_sums["ordered_item_quantity"])
+# preview of dataset
+#print(orders_log.head()) #5 by default
 
-#####
-ordered_returned_sums.head()
+# statistics of the data
+#print(orders_log.describe())
 
-#####
-# take average of the unit return rate for all orders of a customer
-customer_return_rate = (ordered_returned_sums
-                        .groupby("customer_id")
-                        .average_return_rate
-                        .mean()
-                        .reset_index())
+#orders with more returns than sales are ignored (most likely a mistake)
+#print("Rows with negative net quantity:", orders_log[orders_log.net_quantity < 0].shape[0])
+      
+# deleting above orders from the dataset
+orders_log = orders_log[orders_log["ordered_item_quantity"] > 0]    
 
-####
-return_rates = pd.DataFrame(customer_return_rate["average_return_rate"]
-                            .value_counts()
-                            .reset_index())
 
-return_rates.rename(columns=
-                    {"index": "average return rate",
-                     "average_return_rate": "count of unit return rate"},
-                    inplace=True)
 
-return_rates.sort_values(by="average return rate")
+################################Part2###################################
 
-####
-# add average_return_rate to customers dataframe
-customers = pd.merge(customers,
-                     customer_return_rate,
-                     on="customer_id")
+
+
+#tracking customers with more than one order
+def multi_col(column):
+    if column > 0:
+        return 1
+    if column <= 0:
+        return 0
+
+
+# defining function to aggregate data by ordered quantity    
+def aggregate(dataset, col_list):
+    
+    # aggregating given dataframe by column list to create a aggregated dataframe by counting the ordered item quantities    
+    dataset_aggregated = (dataset.groupby(col_list).ordered_item_quantity.count().reset_index())
+
+    #adding count of X ordered where X is the second element in the col_list to the aggregated dataframe by encoding ordered items 
+    dataset_aggregated["products_ordered"] = (dataset_aggregated.ordered_item_quantity.apply(multi_col))
+    
+    #creating final dataset with information about how many of X are ordered, based on the first element passed in the column list''
+    dataset_final = (dataset_aggregated.groupby(col_list[0]).products_ordered.sum().reset_index())
+    # aligned with the added column name              
+
+    return dataset_final
+    
+# calling the above function
+data_aggregated = aggregate(orders_log, ["customer_id", "product_type"])
+#print(data_aggregated.head())
+
+
+
+################################Part3###################################
+
+
+
+#for calculating average return rate
+
+# calculation of sold item sum and returned item sum by aggregating data per customer_id
+sum_by_customer_sold = (orders_log.groupby(["customer_id", "order_id"]).ordered_item_quantity.sum().reset_index())
+
+sum_by_customer_return = (orders_log.groupby(["customer_id", "order_id"]).returned_item_quantity.sum().reset_index())
+
+# merging above sold and return dataframes
+sum_sold_returned = pd.merge(sum_by_customer_sold, sum_by_customer_return)
+
+# calculation of return rate per order and customer
+sum_sold_returned["average_return_rate"] = (-1 * sum_sold_returned["returned_item_quantity"] / sum_sold_returned["ordered_item_quantity"])
+
+# preview of dataframe
+#print(sum_sold_returned.head())
+
+# calculating average of the return rate for all orders of a customer
+return_rate_customer = (sum_sold_returned.groupby("customer_id").average_return_rate.mean().reset_index())
+
+avg_return_rate = pd.DataFrame(return_rate_customer["average_return_rate"].value_counts().reset_index())
+#print(avg_return_rate.head())
+
+avg_return_rate.rename(columns={"index": "average return rate","average_return_rate": "count of unit return rate"},inplace=True)
+#print(avg_return_rate.head())
+
+avg_return_rate.sort_values(by="average return rate")
+
+# adding average_return_rate to aggregated data dataframe
+data_aggregated = pd.merge(data_aggregated, return_rate_customer, on="customer_id")
+#print(data_aggregated.head())
+
