@@ -1,142 +1,312 @@
-#applying model with appropriate number of clusters
-# create initial K-means model
-kmeans_model = KMeans(init='k-means++', 
-                      max_iter=500, 
-                      random_state=42)
+# for data
+import numpy as np
+import pandas as pd
 
-kmeans_model.fit(customers.iloc[:,3:])
+# for visualization
+import matplotlib.pyplot as plt
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
-# print the sum of distances from all examples to the center of the cluster
-print("within-cluster sum-of-squares (inertia) of the model is:", kmeans_model.inertia_)
+# for model
+from sklearn.cluster import KMeans
 
-def make_list_of_K(K, dataframe):
-    '''inputs: K as integer and dataframe
-    apply k-means clustering to dataframe
-    and make a list of inertia values against 1 to K (inclusive)
-    return the inertia values list
-    '''
+# loading data
+orders_log = pd.read_csv("Customer-Orders-log.csv")
+
+# overview of data
+#orders_log.info()
+
+# preview of dataset
+#print(orders_log.head()) #5 by default
+
+# statistics of the data
+#print(orders_log.describe())
+
+#orders with more returns than sales are ignored (most likely a mistake)
+#print("Rows with negative net quantity:", orders_log[orders_log.net_quantity < 0].shape[0])
+      
+# deleting above orders from the dataset
+orders_log = orders_log[orders_log["ordered_item_quantity"] > 0]    
+
+
+
+################################Part2###################################
+
+pd.options.mode.chained_assignment = None
+# to bypass warnings in various dataframe assignments
+
+#tracking customers with more than one order
+def multi_col(column):
+    if column > 0:
+        return 1
+    if column <= 0:
+        return 0
+
+
+# defining function to aggregate data by ordered quantity    
+def aggregate(dataset, col_list):
     
-    cluster_values = list(range(1, K+1))
-    inertia_values=[]
+    # aggregating given dataframe by column list to create a aggregated dataframe by counting 
+    #the ordered item quantities    
+    dataset_aggregated = (dataset.groupby(col_list).ordered_item_quantity.count().reset_index())
+
+    #adding count of X ordered where X is the second element in the col_list to the aggregated dataframe 
+    #by encoding ordered items 
+    dataset_aggregated["products_ordered"] = (dataset_aggregated.ordered_item_quantity.apply(multi_col))
     
-    for c in cluster_values:
-        model = KMeans(
-            n_clusters = c, 
-            init='k-means++', 
-            max_iter=500, 
-            random_state=42)
-        model.fit(dataframe)
-        inertia_values.append(model.inertia_)
+    #creating final dataset with information about how many of X are ordered
+    #based on the first element passed in the column list''
+    dataset_final = (dataset_aggregated.groupby(col_list[0]).products_ordered.sum().reset_index())
+    # aligned with the added column name              
+
+    return dataset_final
     
-    return inertia_values
+# calling the above function
+data_aggregated = aggregate(orders_log, ["customer_id", "product_type"])
+#print(data_aggregated.head())
 
-# save inertia values in a dataframe for k values between 1 to 15 
-results = make_list_of_K(15, customers.iloc[:, 3:])
 
-k_values_distances = pd.DataFrame({"clusters": list(range(1, 16)),
-                                   "within cluster sum of squared distances": results})
 
-# visualization for the selection of number of segments
-fig = go.Figure()
+################################Part3###################################
 
-fig.add_trace(go.Scatter(x=k_values_distances["clusters"], 
-                         y=k_values_distances["within cluster sum of squared distances"],
-                         mode='lines+markers'))
 
-fig.update_layout(xaxis = dict(
-        tickmode = 'linear',
-        tick0 = 1,
-        dtick = 1),
-                  title_text="Within Cluster Sum of Squared Distances VS K Values",
-                  xaxis_title="K values",
-                  yaxis_title="Cluster sum of squared distances")
+
+#for calculating average return rate
+
+# calculation of sold item sum and returned item sum by aggregating data per customer_id
+sum_by_customer_sold = (orders_log.groupby(["customer_id", "order_id"]).ordered_item_quantity.sum()
+                        .reset_index())
+
+sum_by_customer_return = (orders_log.groupby(["customer_id", "order_id"]).returned_item_quantity.sum()
+                          .reset_index())
+
+# merging above sold and return dataframes
+sum_sold_returned = pd.merge(sum_by_customer_sold, sum_by_customer_return)
+
+# calculation of return rate per order and customer
+sum_sold_returned["average_return_rate"] = (-1 * sum_sold_returned["returned_item_quantity"]
+                                            / sum_sold_returned["ordered_item_quantity"])
+
+# preview of dataframe
+#print(sum_sold_returned.head())
+
+# calculating average of the return rate for all orders of a customer
+return_rate_customer = (sum_sold_returned.groupby("customer_id").average_return_rate.mean().reset_index())
+
+avg_return_rate = pd.DataFrame(return_rate_customer["average_return_rate"].value_counts().reset_index())
+#print(avg_return_rate.head())
+
+avg_return_rate.rename(columns={"index": "average return rate","average_return_rate": 
+                                "count of unit return rate"},inplace=True)
+#print(avg_return_rate.head())
+
+avg_return_rate.sort_values(by="average return rate")
+
+# adding average_return_rate to aggregated data dataframe
+data_aggregated = pd.merge(data_aggregated, return_rate_customer, on="customer_id")
+#print(data_aggregated.head())
+
+
+
+###############################Part4####################################
+
+
+
+%matplotlib inline
+# including graphs inline within the frontends next to code
+
+%config InlineBackend.figure_format='retina'
+#enabling retina (high resolution) plots
+
+# total sales per customer id
+customer_spending_total = (orders_log.groupby("customer_id").total_sales.sum().reset_index())
+
+customer_spending_total.rename(columns = {"total_sales" : "total_spending"},inplace = True)
+
+# adding above total sales per customer to working dataframe
+data_aggregated = data_aggregated.merge(customer_spending_total, on="customer_id")
+
+# removing non-feature cloumn(/s)
+data_aggregated.drop(columns="customer_id", inplace=True)
+
+#preview
+#print(data_aggregated.head())
+
+#visualizing features
+fig = make_subplots(rows=3, cols=1, subplot_titles=("No. of products ordered per customer", 
+                                                    "Average Return Rate of customers", 
+                                                    "Total Spending of customers"))
+
+fig.append_trace(go.Histogram(x=data_aggregated.products_ordered), row=1, col=1)
+fig.update_yaxes(title_text="Count", row=1, col=1)
+fig.update_xaxes(title_text="Products ordered", row=1, col=1)
+
+fig.append_trace(go.Histogram(x=data_aggregated.average_return_rate), row=2, col=1)
+fig.update_yaxes(title_text="Count", row=2, col=1)
+fig.update_xaxes(title_text="Average return rate", row=2, col=1)
+
+fig.append_trace(go.Histogram(x=data_aggregated.total_spending), row=3, col=1)
+fig.update_yaxes(title_text="Count", row=3, col=1)
+fig.update_xaxes(title_text="Total spending", row=3, col=1)
+
+fig.update_layout(height=800, width=800, title_text="Features distribution")
 
 fig.show()
 
-# create clustering model with optimal k=4
-updated_kmeans_model = KMeans(n_clusters = 4, 
-                              init='k-means++', 
-                              max_iter=500, 
-                              random_state=42)
+#defining function to scale features
+def scale_log1p(dataframe, col):
+    
+    dataframe["log_" + col] = np.log1p(dataframe[col])
+    return dataframe["log_" + col]
 
-updated_kmeans_model.fit_predict(customers.iloc[:,3:])
+#calling scaling function for individual dataframes
+scale_log1p(data_aggregated, "products_ordered")
 
-# create cluster centers and actual data arrays
-cluster_centers = updated_kmeans_model.cluster_centers_
-actual_data = np.expm1(cluster_centers)
-add_points = np.append(actual_data, cluster_centers, axis=1)
-add_points
+scale_log1p(data_aggregated, "average_return_rate")
 
-# add labels to customers dataframe and add_points array
-add_points = np.append(add_points, [[0], [1], [2], [3]], axis=1)
-customers["clusters"] = updated_kmeans_model.labels_
-# create centers dataframe from add_points
-centers_df = pd.DataFrame(data=add_points, columns=["products_ordered",
-                                                    "average_return_rate",
-                                                    "total_spending",
-                                                    "log_products_ordered",
-                                                    "log_average_return_rate",
-                                                    "log_total_spending",
-                                                    "clusters"])
-centers_df.head()
+scale_log1p(data_aggregated, "total_spending")
 
-# align cluster centers of centers_df and customers
-centers_df["clusters"] = centers_df["clusters"].astype("int")
+fig = make_subplots(rows=3, cols=1, subplot_titles=("No. of products ordered per customer", 
+                                                    "Average Return Rate of customers",
+                                                    "Total Spending of customers"))
 
-centers_df.head()
+#visualizing transformed features
+fig.append_trace(go.Histogram(x=data_aggregated.log_products_ordered), row=1, col=1)
+fig.update_yaxes(title_text="Count", row=1, col=1)
+fig.update_xaxes(title_text="Products ordered", row=1, col=1)
 
-customers.head()
+fig.append_trace(go.Histogram(x=data_aggregated.log_average_return_rate), row=2, col=1)
+fig.update_yaxes(title_text="Count", row=2, col=1)
+fig.update_xaxes(title_text="Average return rate", row=2, col=1)
 
-# differentiate between data points and cluster centers
-customers["is_center"] = 0
-centers_df["is_center"] = 1
+fig.append_trace(go.Histogram(x=data_aggregated.log_total_spending), row=3, col=1)
+fig.update_yaxes(title_text="Count", row=3, col=1)
+fig.update_xaxes(title_text="Total spending", row=3, col=1)
 
-# add dataframes together
-customers = customers.append(centers_df, ignore_index=True)
-customers.tail()
+fig.update_layout(height=800, width=800, title_text="Features Distribution (with Logarithm Transformation)")
 
-# add clusters to the dataframe
-customers["cluster_name"] = customers["clusters"].astype(str)
+fig.show()
 
-# visualize log_transformation customer segments with a 3D plot
-fig = px.scatter_3d(customers,
-                    x="log_products_ordered",
-                    y="log_average_return_rate",
-                    z="log_total_spending",
-                    color='cluster_name',
-                    hover_data=["products_ordered",
-                                "average_return_rate",
+#preview of dataset
+#print(data_aggregated.head())
+
+# preview of features to be used as an input to the model
+#data_aggregated.iloc[:,3:]
+
+
+
+##############################Part5##################################
+
+# creating initial K-means model
+model = KMeans(init='k-means++', max_iter=1000, random_state=42)
+#Popular integer random seeds for random state are 0 and 42
+
+model.fit(data_aggregated.iloc[:,3:])
+
+# sum of distances from orders to the center of the cluster
+#print("For the K-means model, within-cluster inertia is :", model.inertia_)
+
+#defining function to calculate inertia for models with differnt K values
+def inertia_calculation(K, dataframe):
+    
+    val_cluster = list(range(1, K+1))
+    val_inertia=[]
+    
+    for c in val_cluster:
+        model = KMeans(n_clusters = c, init='k-means++', max_iter=1000, random_state=42)
+        model.fit(dataframe)
+        val_inertia.append(model.inertia_)
+    
+    return val_inertia
+
+# obtaining inertia values for different k values (1-15) by calling above function 
+inertia_values = inertia_calculation(15, data_aggregated.iloc[:, 3:])
+
+K_dataset = pd.DataFrame({"K": list(range(1, 16)), "within-cluster inertia": inertia_values})
+print("For different K-means model, within-cluster inertias are :")
+print(K_dataset)
+
+# visualization for K selection 
+fig = go.Figure()
+
+fig.add_trace(go.Scatter(x=K_dataset["K"], y=K_dataset["within-cluster inertia"], mode='lines+markers'))
+
+fig.update_layout(xaxis = dict(tickmode = 'linear', tick0 = 1, dtick = 1), title_text="K selection", 
+                               xaxis_title="K values", yaxis_title="Within-Cluster Inertia")
+
+fig.show()
+
+print("K=4 (Four customer segments) chosen for the model")
+
+# creating model with optimal number of clusters (k=4)
+updated_model = KMeans(n_clusters = 4, init='k-means++', max_iter=1000, random_state=42)
+        #Popular integer random seeds are 0 and 42
+    
+updated_model.fit_predict(data_aggregated.iloc[:,3:])
+
+# creating centre of clusters and data arrays
+centers = updated_model.cluster_centers_
+data_array = np.expm1(centers) #calculating exponential
+points = np.append(data_array, centers, axis=1)
+
+# adding label to dataframe and points array
+points = np.append(points, [[0], [1], [2], [3]], axis=1)
+data_aggregated["cluster"] = updated_model.labels_
+
+
+# creating centers dataframe from points
+dataframe_centres = pd.DataFrame(data=points, columns=["products_ordered", "average_return_rate",
+                                                       "total_spending", "log_products_ordered",
+                                                       "log_average_return_rate", "log_total_spending",
+                                                       "cluster"])
+
+# aligning cluster centers 
+dataframe_centres["cluster"] = dataframe_centres["cluster"].astype("int")
+#print(dataframe_centres)
+#print(data_aggregated.head())
+
+#for differentiating data points and cluster centers
+data_aggregated["is_center"] = 0
+dataframe_centres["is_center"] = 1
+
+# appending the dataframe 
+data_aggregated = data_aggregated.append(dataframe_centres, ignore_index=True)
+#preview of data appended
+#data_aggregated.tail()
+
+# adding clusters to the dataframe
+data_aggregated["cluster_name"] = data_aggregated["cluster"].astype(str)
+
+
+
+# visualizing customer segments with a 3D plot
+fig = px.scatter_3d(data_aggregated, x="log_products_ordered", y="log_average_return_rate", 
+                    z="log_total_spending", color='cluster_name',
+                    hover_data=["products_ordered", "average_return_rate", 
                                 "total_spending"],
                     category_orders = {"cluster_name": 
                                        ["0", "1", "2", "3"]},
-                    symbol = "is_center"
-                    )
+                    symbol = "is_center")
 
 fig.update_layout(margin=dict(l=0, r=0, b=0, t=0))
 fig.show()
 
 # values for log_transformation
-cardinality_df = pd.DataFrame(
-    customers.cluster_name.value_counts().reset_index())
+count_df = pd.DataFrame(data_aggregated.cluster_name.value_counts().reset_index())
 
-cardinality_df.rename(columns={"index": "Customer Groups",
-                               "cluster_name": "Customer Group Magnitude"},
-                      inplace=True)
+count_df.rename(columns={"index": "Customer Groups",
+                               "cluster_name": "Count"}, inplace=True)
 
-cardinality_df
+print("Magnitudes for different customer groups")
+print(count_df)
 
-fig = px.bar(cardinality_df, x="Customer Groups", 
-             y="Customer Group Magnitude",
+fig = px.bar(count_df, x="Customer Groups", y="Count",
              color = "Customer Groups",
              category_orders = {"Customer Groups": ["0", "1", "2", "3"]})
 
-fig.update_layout(xaxis = dict(
-        tickmode = 'linear',
-        tick0 = 1,
-        dtick = 1),
-                 yaxis = dict(
-        tickmode = 'linear',
-        tick0 = 1000,
-        dtick = 1000))
+fig.update_layout(xaxis = dict(tickmode = 'linear', tick0 = 1, dtick = 1),
+                  yaxis = dict(tickmode = 'linear', tick0 = 1000, dtick = 1000),
+                  title_text="Magnitude of customer groups")
 
 fig.show()
